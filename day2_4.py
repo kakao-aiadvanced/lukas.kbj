@@ -2,7 +2,8 @@ import bs4
 from langchain import hub
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import WebBaseLoader
-from langchain_core.output_parsers import StrOutputParser
+from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
+from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -54,22 +55,41 @@ text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=20
 splits = text_splitter.split_documents(all_docs)
 vectorstore = Chroma.from_documents(documents=splits, embedding=OpenAIEmbeddings(model="text-embedding-3-small"))
 
-
 # Retrieve and generate using the relevant snippets of the blog.
-# retriever = vectorstore.as_retriever()
 retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 6})
-prompt = hub.pull("rlm/rag-prompt")
 
+# prompt = hub.pull("rlm/rag-prompt")
+prompt = PromptTemplate(
+    template="""
+답변 문서가 질문에 관련이 있는지 여부를 true/false로 평가 해줘.
+너무 엄격하지 않게 평가해줘. 사례나 세부사항에 대해서 자세하진 않아도됨. 
+평가 내용엔 평가결과와 평가 사유가 있어야해 그리고 한글로 말해, 평가 내용 포멧은 JSON으로 해줘"
+          - 답변 문서 : {document}
+          - 질문 : {question}
+""",
+    input_variables=["document", "question"]
+)
 
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
 
-rag_chain = (
-    {"context": retriever | format_docs, "question": RunnablePassthrough()}
-    | prompt
-    | llm
-    | StrOutputParser()
-)
 
-output = rag_chain.invoke("What is Task Decomposition?")
-print(output)
+retriever_grader = prompt | llm | JsonOutputParser()
+
+question = "agent moemry"
+docs = retriever.invoke(question)
+doc_txt = docs[1].page_content
+print(retriever_grader.invoke({"question" : question, "document" : doc_txt}))
+print(doc_txt)
+
+question = "LLM Powered Autonomous Agents"
+docs = retriever.invoke(question)
+doc_txt = docs[1].page_content
+print(retriever_grader.invoke({"question" : question, "document" : doc_txt}))
+print(doc_txt)
+
+question = "Tree of Thoughts"
+docs = retriever.invoke(question)
+doc_txt = docs[1].page_content
+print(retriever_grader.invoke({"question" : question, "document" : doc_txt}))
+print(doc_txt)
